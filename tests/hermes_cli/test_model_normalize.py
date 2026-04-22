@@ -93,6 +93,19 @@ class TestCopilotDotPreservation:
         assert result == expected
 
 
+class TestClaudeCliNormalization:
+    """Claude CLI prefers bare native names and accepts shorthand aliases."""
+
+    @pytest.mark.parametrize("model,expected", [
+        ("anthropic/claude-sonnet-4.6", "claude-sonnet-4-6"),
+        ("claude-opus-4.7", "claude-opus-4-7"),
+        ("sonnet", "sonnet"),
+        ("opus", "opus"),
+    ])
+    def test_claude_cli_normalization(self, model, expected):
+        assert normalize_model_for_provider(model, "claude-cli") == expected
+
+
 # ── Copilot model-name normalization (issue #6879 regression) ──────────
 
 class TestCopilotModelNormalization:

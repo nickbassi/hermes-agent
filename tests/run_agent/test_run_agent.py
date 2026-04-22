@@ -3601,6 +3601,36 @@ def test_aiagent_uses_copilot_acp_client():
     assert mock_acp_client.call_args.kwargs["args"] == ["--acp", "--stdio"]
 
 
+def test_aiagent_uses_claude_code_client():
+    with (
+        patch("run_agent.get_tool_definitions", return_value=_make_tool_defs("web_search")),
+        patch("run_agent.check_toolset_requirements", return_value={}),
+        patch("run_agent.OpenAI") as mock_openai,
+        patch("agent.claude_code_client.ClaudeCodeClient") as mock_claude_client,
+    ):
+        claude_client = MagicMock()
+        mock_claude_client.return_value = claude_client
+
+        agent = AIAgent(
+            api_key="claude-cli",
+            base_url="claude-cli://local",
+            provider="claude-cli",
+            command="/usr/local/bin/claude",
+            args=["-p", "--output-format", "stream-json"],
+            quiet_mode=True,
+            skip_context_files=True,
+            skip_memory=True,
+        )
+
+    assert agent.client is claude_client
+    mock_openai.assert_not_called()
+    mock_claude_client.assert_called_once()
+    assert mock_claude_client.call_args.kwargs["base_url"] == "claude-cli://local"
+    assert mock_claude_client.call_args.kwargs["api_key"] == "claude-cli"
+    assert mock_claude_client.call_args.kwargs["command"] == "/usr/local/bin/claude"
+    assert mock_claude_client.call_args.kwargs["args"] == ["-p", "--output-format", "stream-json"]
+
+
 def test_quiet_spinner_allowed_with_explicit_print_fn(agent):
     agent._print_fn = lambda *_a, **_kw: None
     with patch.object(run_agent.sys.stdout, "isatty", return_value=False):

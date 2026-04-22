@@ -70,6 +70,7 @@ DEVICE_AUTH_POLL_INTERVAL_CAP_SECONDS = 1     # poll at most every 1s
 DEFAULT_CODEX_BASE_URL = "https://chatgpt.com/backend-api/codex"
 DEFAULT_QWEN_BASE_URL = "https://portal.qwen.ai/v1"
 DEFAULT_GITHUB_MODELS_BASE_URL = "https://api.githubcopilot.com"
+DEFAULT_CLAUDE_CLI_BASE_URL = "claude-cli://local"
 DEFAULT_COPILOT_ACP_BASE_URL = "acp://copilot"
 DEFAULT_OLLAMA_CLOUD_BASE_URL = "https://ollama.com/v1"
 STEPFUN_STEP_PLAN_INTL_BASE_URL = "https://api.stepfun.ai/step_plan/v1"
@@ -142,6 +143,13 @@ PROVIDER_REGISTRY: Dict[str, ProviderConfig] = {
         inference_base_url=DEFAULT_GITHUB_MODELS_BASE_URL,
         api_key_env_vars=("COPILOT_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN"),
         base_url_env_var="COPILOT_API_BASE_URL",
+    ),
+    "claude-cli": ProviderConfig(
+        id="claude-cli",
+        name="Claude Code CLI",
+        auth_type="external_process",
+        inference_base_url=DEFAULT_CLAUDE_CLI_BASE_URL,
+        base_url_env_var="CLAUDE_CLI_BASE_URL",
     ),
     "copilot-acp": ProviderConfig(
         id="copilot-acp",
@@ -1006,6 +1014,7 @@ def resolve_provider(
         "arcee-ai": "arcee", "arceeai": "arcee",
         "minimax-china": "minimax-cn", "minimax_cn": "minimax-cn",
         "claude": "anthropic", "claude-code": "anthropic",
+        "claude-cli": "claude-cli", "claude-code-cli": "claude-cli", "anthropic-cli": "claude-cli", "claw": "claude-cli",
         "github": "copilot", "github-copilot": "copilot",
         "github-models": "copilot", "github-model": "copilot",
         "github-copilot-acp": "copilot-acp", "copilot-acp-agent": "copilot-acp",
@@ -2572,33 +2581,71 @@ def get_api_key_provider_status(provider_id: str) -> Dict[str, Any]:
     }
 
 
+def _external_process_provider_spec(provider_id: str) -> Dict[str, Any]:
+    if provider_id == "claude-cli":
+        return {
+            "command_env": "HERMES_CLAUDE_CLI_COMMAND",
+            "legacy_command_env": "CLAUDE_CODE_CLI_PATH",
+            "args_env": "HERMES_CLAUDE_CLI_ARGS",
+            "default_command": "claude",
+            "default_args": [
+                "-p",
+                "--output-format",
+                "stream-json",
+                "--include-partial-messages",
+                "--verbose",
+                "--setting-sources",
+                "user",
+                "--permission-mode",
+                "bypassPermissions",
+                "--tools",
+                "",
+            ],
+            "remote_base_prefix": "claude-cli+tcp://",
+            "missing_code": "missing_claude_cli",
+            "install_hint": "Install Claude Code CLI or set HERMES_CLAUDE_CLI_COMMAND/CLAUDE_CODE_CLI_PATH.",
+        }
+    return {
+        "command_env": "HERMES_COPILOT_ACP_COMMAND",
+        "legacy_command_env": "COPILOT_CLI_PATH",
+        "args_env": "HERMES_COPILOT_ACP_ARGS",
+        "default_command": "copilot",
+        "default_args": ["--acp", "--stdio"],
+        "remote_base_prefix": "acp+tcp://",
+        "missing_code": "missing_copilot_cli",
+        "install_hint": "Install GitHub Copilot CLI or set HERMES_COPILOT_ACP_COMMAND/COPILOT_CLI_PATH.",
+    }
+
+
 def get_external_process_provider_status(provider_id: str) -> Dict[str, Any]:
     """Status snapshot for providers that run a local subprocess."""
     pconfig = PROVIDER_REGISTRY.get(provider_id)
     if not pconfig or pconfig.auth_type != "external_process":
         return {"configured": False}
 
+    spec = _external_process_provider_spec(provider_id)
     command = (
-        os.getenv("HERMES_COPILOT_ACP_COMMAND", "").strip()
-        or os.getenv("COPILOT_CLI_PATH", "").strip()
-        or "copilot"
+        os.getenv(spec["command_env"], "").strip()
+        or os.getenv(spec["legacy_command_env"], "").strip()
+        or spec["default_command"]
     )
-    raw_args = os.getenv("HERMES_COPILOT_ACP_ARGS", "").strip()
-    args = shlex.split(raw_args) if raw_args else ["--acp", "--stdio"]
+    raw_args = os.getenv(spec["args_env"], "").strip()
+    args = shlex.split(raw_args) if raw_args else list(spec["default_args"])
     base_url = os.getenv(pconfig.base_url_env_var, "").strip() if pconfig.base_url_env_var else ""
     if not base_url:
         base_url = pconfig.inference_base_url
 
     resolved_command = shutil.which(command) if command else None
+    remote_ok = base_url.startswith(spec["remote_base_prefix"])
     return {
-        "configured": bool(resolved_command or base_url.startswith("acp+tcp://")),
+        "configured": bool(resolved_command or remote_ok),
         "provider": provider_id,
         "name": pconfig.name,
         "command": command,
         "args": args,
         "resolved_command": resolved_command,
         "base_url": base_url,
-        "logged_in": bool(resolved_command or base_url.startswith("acp+tcp://")),
+        "logged_in": bool(resolved_command or remote_ok),
     }
 
 
@@ -2613,7 +2660,7 @@ def get_auth_status(provider_id: Optional[str] = None) -> Dict[str, Any]:
         return get_qwen_auth_status()
     if target == "google-gemini-cli":
         return get_gemini_oauth_auth_status()
-    if target == "copilot-acp":
+    if target in {"copilot-acp", "claude-cli"}:
         return get_external_process_provider_status(target)
     # API-key providers
     pconfig = PROVIDER_REGISTRY.get(target)
@@ -2681,25 +2728,25 @@ def resolve_external_process_provider_credentials(provider_id: str) -> Dict[str,
     if not base_url:
         base_url = pconfig.inference_base_url
 
+    spec = _external_process_provider_spec(provider_id)
     command = (
-        os.getenv("HERMES_COPILOT_ACP_COMMAND", "").strip()
-        or os.getenv("COPILOT_CLI_PATH", "").strip()
-        or "copilot"
+        os.getenv(spec["command_env"], "").strip()
+        or os.getenv(spec["legacy_command_env"], "").strip()
+        or spec["default_command"]
     )
-    raw_args = os.getenv("HERMES_COPILOT_ACP_ARGS", "").strip()
-    args = shlex.split(raw_args) if raw_args else ["--acp", "--stdio"]
+    raw_args = os.getenv(spec["args_env"], "").strip()
+    args = shlex.split(raw_args) if raw_args else list(spec["default_args"])
     resolved_command = shutil.which(command) if command else None
-    if not resolved_command and not base_url.startswith("acp+tcp://"):
+    if not resolved_command and not base_url.startswith(spec["remote_base_prefix"]):
         raise AuthError(
-            f"Could not find the Copilot CLI command '{command}'. "
-            "Install GitHub Copilot CLI or set HERMES_COPILOT_ACP_COMMAND/COPILOT_CLI_PATH.",
+            f"Could not find the {pconfig.name} command '{command}'. {spec['install_hint']}",
             provider=provider_id,
-            code="missing_copilot_cli",
+            code=spec["missing_code"],
         )
 
     return {
         "provider": provider_id,
-        "api_key": "copilot-acp",
+        "api_key": provider_id,
         "base_url": base_url.rstrip("/"),
         "command": resolved_command or command,
         "args": args,

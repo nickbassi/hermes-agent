@@ -70,6 +70,18 @@ def _supports_same_provider_pool_setup(provider: str) -> bool:
 # Default model lists per provider — used as fallback when the live
 # /models endpoint can't be reached.
 _DEFAULT_PROVIDER_MODELS = {
+    "claude-cli": [
+        "claude-opus-4-7",
+        "claude-opus-4-6",
+        "claude-opus-4-5",
+        "claude-sonnet-4-6",
+        "claude-sonnet-4-5",
+        "claude-sonnet-4-1",
+        "claude-haiku-3-5",
+        "opus",
+        "sonnet",
+        "haiku",
+    ],
     "copilot-acp": [
         "copilot-acp",
     ],

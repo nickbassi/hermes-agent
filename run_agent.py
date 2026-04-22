@@ -847,6 +847,8 @@ class AIAgent:
         self.base_url = base_url or ""
         provider_name = provider.strip().lower() if isinstance(provider, str) and provider.strip() else None
         self.provider = provider_name or ""
+        self.command = command or acp_command
+        self.args = list(args or acp_args or [])
         self.acp_command = acp_command or command
         self.acp_args = list(acp_args or args or [])
         if api_mode in {"chat_completions", "codex_responses", "anthropic_messages", "bedrock_converse"}:
@@ -905,9 +907,11 @@ class AIAgent:
         if (
             api_mode is None
             and self.api_mode == "chat_completions"
-            and self.provider != "copilot-acp"
+            and self.provider not in {"copilot-acp", "claude-cli"}
             and not str(self.base_url or "").lower().startswith("acp://copilot")
             and not str(self.base_url or "").lower().startswith("acp+tcp://")
+            and not str(self.base_url or "").lower().startswith("claude-cli://")
+            and not str(self.base_url or "").lower().startswith("claude-cli+tcp://")
             and (
                 self._is_direct_openai_url()
                 or self._provider_model_requires_responses_api(
@@ -1169,9 +1173,9 @@ class AIAgent:
                 client_kwargs = {"api_key": api_key, "base_url": base_url}
                 if _provider_timeout is not None:
                     client_kwargs["timeout"] = _provider_timeout
-                if self.provider == "copilot-acp":
-                    client_kwargs["command"] = self.acp_command
-                    client_kwargs["args"] = self.acp_args
+                if self.provider in {"copilot-acp", "claude-cli"}:
+                    client_kwargs["command"] = self.acp_command if self.provider == "copilot-acp" else self.command
+                    client_kwargs["args"] = self.acp_args if self.provider == "copilot-acp" else self.args
                 effective_base = base_url
                 if base_url_host_matches(effective_base, "openrouter.ai"):
                     client_kwargs["default_headers"] = {
@@ -4445,6 +4449,17 @@ class AIAgent:
             client = CopilotACPClient(**client_kwargs)
             logger.info(
                 "Copilot ACP client created (%s, shared=%s) %s",
+                reason,
+                shared,
+                self._client_log_context(),
+            )
+            return client
+        if self.provider == "claude-cli" or str(client_kwargs.get("base_url", "")).startswith("claude-cli://"):
+            from agent.claude_code_client import ClaudeCodeClient
+
+            client = ClaudeCodeClient(**client_kwargs)
+            logger.info(
+                "Claude Code client created (%s, shared=%s) %s",
                 reason,
                 shared,
                 self._client_log_context(),

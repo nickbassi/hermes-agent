@@ -137,6 +137,18 @@ _PROVIDER_MODELS: dict[str, list[str]] = {
         "openai/gpt-5.4-nano",
     ],
     "openai-codex": _codex_curated_models(),
+    "claude-cli": [
+        "claude-opus-4-7",
+        "claude-opus-4-6",
+        "claude-opus-4-5",
+        "claude-sonnet-4-6",
+        "claude-sonnet-4-5",
+        "claude-sonnet-4-1",
+        "claude-haiku-3-5",
+        "opus",
+        "sonnet",
+        "haiku",
+    ],
     "copilot-acp": [
         "copilot-acp",
     ],
@@ -689,6 +701,7 @@ CANONICAL_PROVIDERS: list[ProviderEntry] = [
     ProviderEntry("openrouter",     "OpenRouter",               "OpenRouter (100+ models, pay-per-use)"),
     ProviderEntry("ai-gateway",     "Vercel AI Gateway",        "Vercel AI Gateway (200+ models, $5 free credit, no markup)"),
     ProviderEntry("anthropic",      "Anthropic",                "Anthropic (Claude models — API key or Claude Code)"),
+    ProviderEntry("claude-cli",     "Claude Code CLI",          "Claude Code CLI (spawns `claude -p --output-format stream-json`)"),
     ProviderEntry("openai-codex",   "OpenAI Codex",             "OpenAI Codex"),
     ProviderEntry("xiaomi",         "Xiaomi MiMo",              "Xiaomi MiMo (MiMo-V2 models — pro, omni, flash)"),
     ProviderEntry("nvidia",         "NVIDIA NIM",               "NVIDIA NIM (Nemotron models — build.nvidia.com or local NIM)"),
@@ -746,6 +759,10 @@ _PROVIDER_ALIASES = {
     "minimax_cn": "minimax-cn",
     "claude": "anthropic",
     "claude-code": "anthropic",
+    "claude-cli": "claude-cli",
+    "claude-code-cli": "claude-cli",
+    "anthropic-cli": "claude-cli",
+    "claw": "claude-cli",
     "deep-seek": "deepseek",
     "opencode": "opencode-zen",
     "zen": "opencode-zen",
@@ -1600,6 +1617,8 @@ def provider_model_ids(provider: Optional[str], *, force_refresh: bool = False) 
         from hermes_cli.codex_models import get_codex_model_ids
 
         return get_codex_model_ids()
+    if normalized == "claude-cli":
+        return list(_PROVIDER_MODELS.get("claude-cli", []))
     if normalized in {"copilot", "copilot-acp"}:
         try:
             live = _fetch_github_models(_resolve_copilot_catalog_api_key())
@@ -1901,6 +1920,49 @@ def normalize_copilot_model_id(
     if "/" in raw:
         return raw.split("/", 1)[1].strip()
     return raw
+
+
+_CLAUDE_CLI_MODEL_ALIASES: dict[str, str] = {
+    "opus": "opus",
+    "sonnet": "sonnet",
+    "haiku": "haiku",
+    "opus-4.7": "claude-opus-4-7",
+    "opus-4.6": "claude-opus-4-6",
+    "opus-4.5": "claude-opus-4-5",
+    "opus-4": "claude-opus-4",
+    "sonnet-4.6": "claude-sonnet-4-6",
+    "sonnet-4.5": "claude-sonnet-4-5",
+    "sonnet-4.1": "claude-sonnet-4-1",
+    "sonnet-4.0": "claude-sonnet-4-0",
+    "haiku-3.5": "claude-haiku-3-5",
+    "claude-opus-4.7": "claude-opus-4-7",
+    "claude-opus-4.6": "claude-opus-4-6",
+    "claude-opus-4.5": "claude-opus-4-5",
+    "claude-opus-4": "claude-opus-4",
+    "claude-opus-4-7": "claude-opus-4-7",
+    "claude-opus-4-6": "claude-opus-4-6",
+    "claude-opus-4-5": "claude-opus-4-5",
+    "claude-opus-4": "claude-opus-4",
+    "claude-sonnet-4.6": "claude-sonnet-4-6",
+    "claude-sonnet-4.5": "claude-sonnet-4-5",
+    "claude-sonnet-4.1": "claude-sonnet-4-1",
+    "claude-sonnet-4.0": "claude-sonnet-4-0",
+    "claude-sonnet-4-6": "claude-sonnet-4-6",
+    "claude-sonnet-4-5": "claude-sonnet-4-5",
+    "claude-sonnet-4-1": "claude-sonnet-4-1",
+    "claude-sonnet-4-0": "claude-sonnet-4-0",
+    "claude-haiku-3.5": "claude-haiku-3-5",
+    "claude-haiku-3-5": "claude-haiku-3-5",
+}
+
+
+def normalize_claude_cli_model_id(model_id: Optional[str]) -> str:
+    raw = str(model_id or "").strip().lower()
+    if not raw:
+        return ""
+    if "/" in raw:
+        raw = raw.split("/", 1)[1].strip()
+    return _CLAUDE_CLI_MODEL_ALIASES.get(raw, raw.replace(".", "-") if raw.startswith("claude-") else raw)
 
 
 def _github_reasoning_efforts_for_model_id(model_id: str) -> list[str]:
